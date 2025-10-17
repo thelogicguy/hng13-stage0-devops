@@ -65,26 +65,26 @@ jobs:
             BACKUP_DIR="/opt/deployments/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             
-            mkdir -p "$BACKUP_DIR"
+            sudo mkdir -p "$BACKUP_DIR"
             
             # Backup existing index.html
             if [ -f "$DEPLOY_PATH/index.html" ]; then
-              cp "$DEPLOY_PATH/index.html" "$BACKUP_DIR/index_$TIMESTAMP.html"
+              sudo cp "$DEPLOY_PATH/index.html" "$BACKUP_DIR/index_$TIMESTAMP.html"
             fi
             
             # Deploy new index.html
-            mv /tmp/index.html "$DEPLOY_PATH/index.html"
+            sudo mv /tmp/index.html "$DEPLOY_PATH/index.html"
             
             # Set permissions
-            chown deploy:www-data "$DEPLOY_PATH/index.html"
-            chmod 644 "$DEPLOY_PATH/index.html"
+            sudo chown deploy:www-data "$DEPLOY_PATH/index.html"
+            sudo chmod 644 "$DEPLOY_PATH/index.html"
             
             # Test and reload NGINX
-            nginx -t
-            systemctl reload nginx
+            sudo nginx -t
+            sudo systemctl reload nginx
             
             # Keep only last 5 backups
-            ls -t "$BACKUP_DIR"/index_*.html | tail -n +6 | xargs -r sudo rm
+            sudo ls -t "$BACKUP_DIR"/index_*.html | tail -n +6 | xargs -r sudo rm
             
             echo "✅ index.html deployment completed!"
           ENDSSH
