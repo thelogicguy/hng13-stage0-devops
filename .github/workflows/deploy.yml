@@ -1,0 +1,108 @@
+name: Deploy index.html to NGINX Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: /var/www/mywebsite/html
+
+jobs:
+  test:
+    name: Validate index.html
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Validate HTML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tidy
+          tidy -q -e src/index.html || true
+      
+      - name: Check index.html exists
+        run: |
+          echo "Checking if index.html exists..."
+          test -f src/index.html || { echo "❌ index.html not found!"; exit 1; }
+          echo "✅ index.html found."
+
+  deploy:
+    name: Deploy index.html to Production
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy index.html to server
+        run: |
+          echo "🚀 Deploying index.html to production server..."
+          
+          # Upload only index.html
+          rsync -avz \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            src/index.html \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/tmp/index.html
+          
+          # Execute deployment script on server
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+            set -e
+            
+            DEPLOY_PATH="/var/www/mywebsite/html"
+            BACKUP_DIR="/opt/deployments/backups"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            
+            sudo mkdir -p "$BACKUP_DIR"
+            
+            # Backup existing index.html
+            if [ -f "$DEPLOY_PATH/index.html" ]; then
+              sudo cp "$DEPLOY_PATH/index.html" "$BACKUP_DIR/index_$TIMESTAMP.html"
+            fi
+            
+            # Deploy new index.html
+            sudo mv /tmp/index.html "$DEPLOY_PATH/index.html"
+            
+            # Set permissions
+            sudo chown deploy:www-data "$DEPLOY_PATH/index.html"
+            sudo chmod 644 "$DEPLOY_PATH/index.html"
+            
+            # Test and reload NGINX
+            sudo nginx -t
+            sudo systemctl reload nginx
+            
+            # Keep only last 5 backups
+            sudo ls -t "$BACKUP_DIR"/index_*.html | tail -n +6 | xargs -r sudo rm
+            
+            echo "✅ index.html deployment completed!"
+          ENDSSH
+      
+      - name: Verify deployment
+        run: |
+          echo "🔍 Verifying deployment..."
+          sleep 5
+          curl -f http://${{ secrets.EC2_HOST }} || exit 1
+          echo "✅ Website is accessible!"
+      
+      - name: Deployment summary
+        run: |
+          echo "## index.html Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **File:** index.html" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server:** ${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 [Visit Website](http://${{ secrets.EC2_HOST }})" >> $GITHUB_STEP_SUMMARY

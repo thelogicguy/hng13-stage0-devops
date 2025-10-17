@@ -1,0 +1,52 @@
+name: Health Check (index.html)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    name: Monitor index.html and NGINX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check index.html availability
+        run: |
+          echo "🔍 Checking website index.html availability..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.EC2_HOST }}/index.html)
+          if [ "$response" -eq 200 ]; then
+            echo "✅ index.html is accessible (HTTP $response)"
+          else
+            echo "❌ index.html returned HTTP $response"
+            exit 1
+          fi
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Check NGINX service status
+        run: |
+          echo "🔧 Checking NGINX service on server..."
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} \
+            "if systemctl is-active --quiet nginx; then
+               echo '✅ NGINX is running'
+             else
+               echo '❌ NGINX is NOT running'
+               exit 1
+             fi"
+
+      - name: Health Check Summary
+        run: |
+          echo "## 🩺 Health Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checked File:** index.html" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server:** ${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **HTTP Status:** $response" >> $GITHUB_STEP_SUMMARY
+          echo "- **NGINX Status:** Running ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checked At:** $(date)" >> $GITHUB_STEP_SUMMARY
